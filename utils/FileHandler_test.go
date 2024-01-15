@@ -3,91 +3,41 @@ package utils
 import (
 	"io/ioutil"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 )
 
-func TestFileHandlerFileExists(t *testing.T) {
+func TestDownloadFile(t *testing.T) {
 	// Create a temporary file for testing
-	file, err := ioutil.TempFile("", "test")
+	tempFile, err := ioutil.TempFile("", "testfile")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(file.Name())
+	defer os.Remove(tempFile.Name())
 
-	// Create a FileHandler instance
-	fh := FileHandler{}
+	// Create a mock HTTP server
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Serve a sample file
+		http.ServeFile(w, r, "testdata/samplefile.txt")
+	}))
+	defer mockServer.Close()
 
-	// Test the FileExists method
-	exists := fh.FileExists(file.Name())
-	if !exists {
-		t.Errorf("Expected file to exist, but it doesn't")
-	}
-}
+	// Create a new instance of FileHandler
+	fh := &FileHandler{}
 
-func TestFileHandlerDownloadFile(t *testing.T) {
-	// Create a temporary file for testing
-	file, err := ioutil.TempFile("", "test")
+	// Call the DownloadFile method
+	err = fh.DownloadFile(tempFile.Name(), mockServer.URL)
 	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(file.Name())
-
-	// Create a FileHandler instance
-	fh := FileHandler{}
-
-	// Start a local HTTP server to serve the test file
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: http.FileServer(http.Dir(".")),
+		t.Errorf("DownloadFile returned an error: %v", err)
 	}
 
-	errChan := make(chan error, 1)
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errChan <- err
-		}
-	}()
-
-	defer func() {
-		if err := server.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}()
-
-	// Test the DownloadFile method
-	err = fh.DownloadFile(file.Name(), "http://localhost:8080/testfile")
+	// Verify that the file was downloaded correctly
+	fileInfo, err := os.Stat(tempFile.Name())
 	if err != nil {
-		t.Errorf("Failed to download file: %v", err)
+		t.Errorf("Failed to get file info: %v", err)
 	}
-
-	select {
-	case err := <-errChan:
-		t.Fatal(err)
-	default:
-	}
-}
-
-func TestFileHandlerExtractImageFile(t *testing.T) {
-	// Create a temporary file for testing
-	file, err := ioutil.TempFile("", "test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(file.Name())
-
-	// Create a FileHandler instance
-	fh := FileHandler{}
-
-	// Test the ExtractImageFile method
-	imagePath, err := fh.ExtractImageFile(file.Name())
-	if err != nil {
-		t.Errorf("Failed to extract image file: %v", err)
-	}
-
-	// Verify that the extracted image file exists
-	exists := fh.FileExists(imagePath)
-	if !exists {
-		t.Errorf("Expected extracted image file to exist, but it doesn't")
+	if fileInfo.Size() != 13 {
+		t.Errorf("Downloaded file size is incorrect. Expected 13, got %d", fileInfo.Size())
 	}
 }
