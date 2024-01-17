@@ -170,7 +170,10 @@ func setupFirstBootScript(authKey, piUser, piPassword, hostname, devicePath stri
 		os.Exit(1)
 	}
 
-	firstrun = append(firstrun, "\n/boot/firstboot.sh\n"...)
+	// Insert /boot/firstboot.sh before exit 0
+	insertion := "\n/boot/firstboot.sh\nexit 0"
+	firstrun = bytes.Replace(firstrun, []byte("exit 0"), []byte(insertion), 1)
+
 	if err := ioutil.WriteFile(firstrunPath, firstrun, 0755); err != nil {
 		fmt.Printf("Error writing to %s: %v\n", firstrunPath, err)
 		os.Exit(1)
@@ -193,6 +196,13 @@ func setupFirstBootScript(authKey, piUser, piPassword, hostname, devicePath stri
 	// Enable Spotlight for the boot partition
 	if err := exec.Command("mdutil", "-i", "on", mountPoint).Run(); err != nil {
 		fmt.Println("Error enabling Spotlight for the boot partition:", err)
+		os.Exit(1)
+	}
+
+	// Remove the generated script
+	scriptPath := filepath.Join(mountPoint, "firstboot.sh")
+	if err := os.Remove(scriptPath); err != nil {
+		fmt.Printf("Error removing %s: %v\n", scriptPath, err)
 		os.Exit(1)
 	}
 }

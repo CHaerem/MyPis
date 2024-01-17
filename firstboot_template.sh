@@ -28,3 +28,6 @@ echo "{{.Hostname}}" | sudo tee /etc/hostname
 # Update and upgrade the system
 sudo apt-get update
 sudo apt-get upgrade -y
+
+# Remove the file
+rm -f /boot/firstboot.sh
