@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/chaerem/mypis/utils"
@@ -44,11 +45,6 @@ func main() {
 		log.Fatal("Hostname cannot be empty")
 	}
 
-	// Get Tailscale auth key
-	authKey := utils.GetAuthKey(env.OauthClientID, env.OauthClientSecret, env.TailnetName)
-
-	fmt.Println("Tailscale Auth Key:", authKey)
-
 	// Download the latest image
 	imageURL, fileName, err := getLatestImageURL()
 	if err != nil {
@@ -78,11 +74,21 @@ func main() {
 	// Get a list of device paths
 	devicePath := dh.GetDevicePath()
 
-	// Flash the SD card
-	dh.FlashSDCard(imgFile, devicePath)
+	// Ask if the user wants to skip flashing the SD card
+	fmt.Print("Do you want to skip flashing the SD card? (yes/no): ")
+	skipFlash, _ := reader.ReadString('\n')
+	skipFlash = strings.TrimSpace(skipFlash)
+
+	// Flash the SD card if the user didn't say 'yes'
+	if strings.ToLower(skipFlash) != "yes" {
+		dh.FlashSDCard(imgFile, devicePath)
+	}
+
+	// Get Tailscale auth key
+	authKey := utils.GetAuthKey(env.OauthClientID, env.OauthClientSecret, env.TailnetName)
 
 	// Setup the boot partition
-	// setupFirstBootScript(authKey, env.PiUser, env.PiPassword, hostname, devicePath, env.WifiNetworks)
+	setupFirstBootScript(authKey, env.PiUser, env.PiPassword, hostname, devicePath, env.WifiNetworks)
 }
 
 func getLatestImageURL() (string, string, error) {
@@ -142,38 +148,51 @@ func setupFirstBootScript(authKey, piUser, piPassword, hostname, devicePath stri
 	}
 
 	// Mount the boot partition
-	bootPartition := devicePath + "1"
-	if err := exec.Command("mount", bootPartition, "/mnt").Run(); err != nil {
+	bootPartition := devicePath + "s1"
+	if err := exec.Command("diskutil", "mount", bootPartition).Run(); err != nil {
 		fmt.Printf("Error mounting the boot partition %s: %v\n", bootPartition, err)
 		os.Exit(1)
 	}
 
+	mountPoint := "/Volumes/bootfs"
+
 	// Copy the script to the boot partition
-	if err := exec.Command("cp", "firstboot.sh", "/mnt").Run(); err != nil {
+	if err := exec.Command("cp", "firstboot.sh", mountPoint).Run(); err != nil {
 		fmt.Println("Error copying the first boot script to the boot partition:", err)
 		os.Exit(1)
 	}
 
+	// Append a call to firstboot.sh to firstrun.sh
+	firstrunPath := filepath.Join(mountPoint, "firstrun.sh")
+	firstrun, err := ioutil.ReadFile(firstrunPath)
+	if err != nil {
+		fmt.Printf("Error reading %s: %v\n", firstrunPath, err)
+		os.Exit(1)
+	}
+
+	firstrun = append(firstrun, "\n/boot/firstboot.sh\n"...)
+	if err := ioutil.WriteFile(firstrunPath, firstrun, 0755); err != nil {
+		fmt.Printf("Error writing to %s: %v\n", firstrunPath, err)
+		os.Exit(1)
+	}
+
+	// Disable Spotlight for the boot partition
+	if err := exec.Command("mdutil", "-i", "off", mountPoint).Run(); err != nil {
+		fmt.Println("Error disabling Spotlight for the boot partition:", err)
+		os.Exit(1)
+	}
+
 	// Unmount the boot partition
-	if err := exec.Command("umount", "/mnt").Run(); err != nil {
+	cmd := exec.Command("diskutil", "unmount", mountPoint)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
 		fmt.Println("Error unmounting the boot partition:", err)
 		os.Exit(1)
 	}
 
-	// Configure the Raspberry Pi to run the script on boot
-	rootPartition := devicePath + "2"
-	if err := exec.Command("mount", rootPartition, "/mnt").Run(); err != nil {
-		fmt.Printf("Error mounting the root partition %s: %v\n", rootPartition, err)
-		os.Exit(1)
-	}
-
-	if err := exec.Command("bash", "-c", `echo "@reboot root /boot/firstboot.sh" >> /mnt/etc/crontab`).Run(); err != nil {
-		fmt.Println("Error configuring the Raspberry Pi to run the first boot script on boot:", err)
-		os.Exit(1)
-	}
-
-	if err := exec.Command("umount", "/mnt").Run(); err != nil {
-		fmt.Println("Error unmounting the root partition:", err)
+	// Enable Spotlight for the boot partition
+	if err := exec.Command("mdutil", "-i", "on", mountPoint).Run(); err != nil {
+		fmt.Println("Error enabling Spotlight for the boot partition:", err)
 		os.Exit(1)
 	}
 }

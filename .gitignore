@@ -48,3 +48,6 @@ Temporary Items
 
 # Environment variables file
 .env
+
+# Custom ignore for firstboot.sh
+firstboot.sh

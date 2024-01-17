@@ -93,6 +93,10 @@ func sendRequest(client *http.Client, url string, jsonData []byte) *http.Respons
 	return resp
 }
 
+type AuthKeyResponse struct {
+	Key string `json:"key"`
+}
+
 func GetAuthKey(clientID, clientSecret, tailnet string) string {
 	client := createOAuthClient(clientID, clientSecret)
 
@@ -114,5 +118,10 @@ func GetAuthKey(clientID, clientSecret, tailnet string) string {
 		log.Fatalf("error reading response body: %v", err)
 	}
 
-	return string(body)
+	var authKeyResponse AuthKeyResponse
+	if err := json.Unmarshal(body, &authKeyResponse); err != nil {
+		log.Fatalf("error unmarshalling JSON: %v", err)
+	}
+
+	return authKeyResponse.Key
 }
